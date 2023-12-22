@@ -1,0 +1,60 @@
+---
+- name: Setup NFS server
+  hosts: nfs
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Set Custom Variables
+      set_fact:
+        share_path: "/mnt/nfsroot"
+
+    - name: Install NFS Utils
+      package:
+        name: nfs-utils
+        state: present
+
+    - name: Start and enable nfs-server
+      service:
+        name: nfs-server
+        state: started
+        enabled: yes
+    - name: Configure etc-exports
+      template:
+        src: /home/ansible/exports.j2
+        dest: /etc/exports
+      notify:
+        - run exportfs
+
+  handlers:
+    - name: Run exportfs
+      ansible.builtin.command:
+        cmd: exportfs -a
+      listen: "run exportfs"
+
+- name: Setup Remote Server
+  hosts: remote
+  gather_facts: yes
+  become: yes
+  vars:
+    nfs_ip: "{{ hostvars['nfs']['ansible_default_ipv4']['address'] }}"
+    nfs_hostname: "{{ hostvars['nfs']['ansible_hostname'] }}"
+  vars_files:
+    - /home/ansible/user-list.txt
+
+  tasks:
+    - name: Configure etc-hosts
+      template:
+        src: /home/ansible/etc.hosts.j2
+        dest: /etc/hosts
+
+    - name: Check if agreement file exists
+      ansible.builtin.stat:
+        path: /opt/user-agreement.txt
+      register: agreement_file
+
+    - name: Create users
+      ansible.builtin.user:
+        name: "{{ item }}"
+      when: agreement_file.stat.exists
+      loop: "{{ users }}"
